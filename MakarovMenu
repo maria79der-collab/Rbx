@@ -1,0 +1,449 @@
+--[[
+    GEMINI V10 ULTIMATE - PRE-FINAL BUILD
+    ФУНКЦИИ: AIMBOT, FULL ESP, PLAYER MODS, UI DRAG, CUSTOM THEMES
+    СТАТУС: MAXIMUM STABILITY
+]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local mouse = player:GetMouse()
+
+-- === ТАБЛИЦА НАСТРОЕК (БЕЗ СОКРАЩЕНИЙ) ===
+local Settings = {
+    -- Aimbot Logic
+    Enabled = false,
+    TeamCheck = true,
+    Fov = 150,
+    Smooth = 0.1,
+    ShowFov = true,
+    AimPart = "Head",
+    AimKey = Enum.UserInputType.MouseButton2,
+    
+    -- Visuals / ESP (ПОЛНЫЙ СПИСОК)
+    EspEnabled = false,
+    EspNames = false,
+    EspHealth = false,
+    EspDistance = false,
+    EspHighlight = true,
+    EspTracers = false, -- Новая функция: Трейсеры
+    
+    -- Player / World
+    WalkSpeed = 16,
+    JumpPower = 50,
+    SpeedEnabled = false,
+    BhopEnabled = false,
+    NoClipEnabled = false,
+    InfJumpEnabled = false,
+    FlyEnabled = false,
+    FlySpeed = 50,
+    
+    -- Interface
+    MenuKey = Enum.KeyCode.RightShift,
+    AccentColor = Color3.fromRGB(0, 255, 255),
+    MenuVisible = false
+}
+
+local ColorCycle = {
+    Color3.fromRGB(0, 255, 255), 
+    Color3.fromRGB(255, 80, 80),  
+    Color3.fromRGB(80, 255, 80),  
+    Color3.fromRGB(255, 215, 0),
+    Color3.fromRGB(255, 0, 255),
+    Color3.fromRGB(255, 255, 255),
+    Color3.fromRGB(0, 100, 255),
+    Color3.fromRGB(170, 0, 255)
+}
+local currentColorIndex = 1
+local isAiming = false
+
+-- === FOV КРУГ (DRAWING API) ===
+local fov_circle = Drawing.new("Circle")
+fov_circle.Thickness = 2
+fov_circle.NumSides = 60
+fov_circle.Radius = Settings.Fov
+fov_circle.Visible = false
+fov_circle.Transparency = 0.8
+fov_circle.Color = Settings.AccentColor
+fov_circle.Filled = false
+
+-- === ГЛАВНЫЙ ИНТЕРФЕЙС ===
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "MAKAROB CHEAT"
+pcall(function() screenGui.Parent = CoreGui end)
+
+local mainFrame = Instance.new("Frame", screenGui)
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 320, 0, 620)
+mainFrame.Position = UDim2.new(0.5, -160, 0.5, -310)
+mainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+mainFrame.Visible = false
+mainFrame.BorderSizePixel = 0
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 10)
+
+-- Обводка меню
+local menuStroke = Instance.new("UIStroke", mainFrame)
+menuStroke.Color = Settings.AccentColor
+menuStroke.Thickness = 2
+menuStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+-- Шапка
+local header = Instance.new("Frame", mainFrame)
+header.Size = UDim2.new(1, 0, 0, 50)
+header.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+header.BorderSizePixel = 0
+Instance.new("UICorner", header)
+
+local title = Instance.new("TextLabel", header)
+title.Size = UDim2.new(1, 0, 1, 0)
+title.Text = "MAKAROV CHEAT"
+title.TextColor3 = Settings.AccentColor
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.BackgroundTransparency = 1
+
+-- Скролл контейнер
+local container = Instance.new("ScrollingFrame", mainFrame)
+container.Size = UDim2.new(1, -10, 1, -70)
+container.Position = UDim2.new(0, 5, 0, 55)
+container.BackgroundTransparency = 1
+container.BorderSizePixel = 0
+container.ScrollBarThickness = 4
+container.ScrollBarImageColor3 = Settings.AccentColor
+container.AutomaticCanvasSize = Enum.AutomaticSize.Y
+container.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+local layout = Instance.new("UIListLayout", container)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 10)
+
+-- === ФУНКЦИЯ ПЕРЕТАСКИВАНИЯ (ПОЛНАЯ) ===
+local dragging, dragInput, dragStart, startPos
+local function update(input)
+    local delta = input.Position - dragStart
+    mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+end
+header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+header.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then update(input) end
+end)
+
+-- === ОБНОВЛЕННЫЙ ESP (ЖИВОЕ ОБНОВЛЕНИЕ БЕЗ УКОРАЧИВАНИЯ) ===
+local function createESP(targetPlayer)
+    if targetPlayer == player then return end
+
+    local function setupESP(char)
+        local head = char:WaitForChild("Head", 20)
+        local humanoid = char:WaitForChild("Humanoid", 20)
+        if not head or not humanoid then return end
+
+        -- Интерфейс над головой
+        local bb = Instance.new("BillboardGui", head)
+        bb.Name = "Gemini_PlayerTag"
+        bb.Size = UDim2.new(0, 200, 0, 60)
+        bb.AlwaysOnTop = true
+        bb.StudsOffset = Vector3.new(0, 3.5, 0)
+
+        local tagLabel = Instance.new("TextLabel", bb)
+        tagLabel.Size = UDim2.new(1, 0, 1, 0)
+        tagLabel.BackgroundTransparency = 1
+        tagLabel.TextColor3 = Color3.new(1, 1, 1)
+        tagLabel.Font = Enum.Font.GothamBold
+        tagLabel.TextSize = 14
+        tagLabel.TextStrokeTransparency = 0.2
+
+        -- Обводка тела
+        local highlight = Instance.new("Highlight", char)
+        highlight.OutlineColor = Color3.new(1, 1, 1)
+        highlight.FillTransparency = 0.5
+
+        -- Линия трейсера
+        local tracer = Drawing.new("Line")
+        tracer.Thickness = 1
+        tracer.Transparency = 0.6
+
+        local espLoop; espLoop = RunService.RenderStepped:Connect(function()
+            if not char.Parent or not targetPlayer.Parent or humanoid.Health <= 0 then
+                espLoop:Disconnect()
+                bb:Destroy()
+                highlight:Destroy()
+                tracer:Remove()
+                return
+            end
+
+            local isFriendly = (targetPlayer.Team == player.Team and Settings.TeamCheck)
+            local visible = Settings.EspEnabled and not isFriendly
+            
+            bb.Enabled = visible
+            highlight.Enabled = visible and Settings.EspHighlight
+            
+            if visible then
+                -- Обновление текста
+                local dist = math.floor((camera.CFrame.Position - head.Position).Magnitude)
+                local content = ""
+                if Settings.EspNames then content = targetPlayer.DisplayName end
+                if Settings.EspDistance then content = content .. " [" .. dist .. "m]" end
+                if Settings.EspHealth then content = content .. "\nHP: " .. math.floor(humanoid.Health) end
+                tagLabel.Text = content
+                
+                -- Обновление цвета
+                highlight.FillColor = isFriendly and Color3.new(0, 1, 0) or Color3.new(1, 0, 0)
+                
+                -- Трейсеры
+                if Settings.EspTracers then
+                    local screenPos, onScreen = camera:WorldToViewportPoint(char.PrimaryPart.Position)
+                    if onScreen then
+                        tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+                        tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+                        tracer.Color = highlight.FillColor
+                        tracer.Visible = true
+                    else
+                        tracer.Visible = false
+                    end
+                else
+                    tracer.Visible = false
+                end
+            else
+                tracer.Visible = false
+            end
+        end)
+    end
+    
+    if targetPlayer.Character then setupESP(targetPlayer.Character) end
+    targetPlayer.CharacterAdded:Connect(setupESP)
+end
+
+-- === КОНСТРУКТОРЫ МЕНЮ (РАСШИРЕННЫЕ) ===
+local function createSection(text, order)
+    local btn = Instance.new("TextButton", container)
+    btn.Name = "SectionBtn"
+    btn.LayoutOrder = order
+    btn.Size = UDim2.new(1, -10, 0, 40)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    btn.Text = "  ▼  " .. text
+    btn.TextColor3 = Settings.AccentColor
+    btn.Font = Enum.Font.GothamBold
+    btn.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", btn)
+
+    local contentFrame = Instance.new("Frame", container)
+    contentFrame.Name = "SectionContent"
+    contentFrame.LayoutOrder = order + 1
+    contentFrame.Size = UDim2.new(1, 0, 0, 0)
+    contentFrame.AutomaticSize = Enum.AutomaticSize.Y
+    contentFrame.BackgroundTransparency = 1
+    Instance.new("UIListLayout", contentFrame).HorizontalAlignment = Enum.HorizontalAlignment.Center
+    contentFrame.UIListLayout.Padding = UDim.new(0, 8)
+
+    btn.MouseButton1Click:Connect(function()
+        contentFrame.Visible = not contentFrame.Visible
+        btn.Text = (contentFrame.Visible and "  ▼  " or "  ▶  ") .. text
+    end)
+    return contentFrame
+end
+
+local function createToggle(text, configKey, parent)
+    local btn = Instance.new("TextButton", parent)
+    btn.Name = "ToggleBtn"
+    btn.Size = UDim2.new(0.95, 0, 0, 35)
+    Instance.new("UICorner", btn)
+    
+    local function refresh()
+        local active = Settings[configKey]
+        btn.BackgroundColor3 = active and Settings.AccentColor or Color3.fromRGB(40, 40, 40)
+        btn.TextColor3 = active and Color3.new(0,0,0) or Color3.new(1,1,1)
+        btn.Text = text .. ": " .. (active and "ON" or "OFF")
+    end
+    
+    btn.MouseButton1Click:Connect(function()
+        Settings[configKey] = not Settings[configKey]
+        refresh()
+    end)
+    refresh()
+    return btn
+end
+
+local function createSlider(text, min, max, configKey, parent)
+    local frame = Instance.new("Frame", parent)
+    frame.Size = UDim2.new(0.95, 0, 0, 55)
+    frame.BackgroundTransparency = 1
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, 0, 0, 25)
+    label.Text = text .. ": " .. Settings[configKey]
+    label.TextColor3 = Color3.new(0.9, 0.9, 0.9)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.Gotham
+
+    local bg = Instance.new("Frame", frame)
+    bg.Size = UDim2.new(1, 0, 0, 6)
+    bg.Position = UDim2.new(0, 0, 0, 35)
+    bg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    
+    local fill = Instance.new("Frame", bg)
+    fill.Name = "SliderFill"
+    fill.Size = UDim2.new((Settings[configKey]-min)/(max-min), 0, 1, 0)
+    fill.BackgroundColor3 = Settings.AccentColor
+    fill.BorderSizePixel = 0
+
+    local trigger = Instance.new("TextButton", bg)
+    trigger.Size = UDim2.new(1, 0, 5, 0)
+    trigger.Position = UDim2.new(0, 0, -2, 0)
+    trigger.BackgroundTransparency = 1
+    trigger.Text = ""
+
+    trigger.MouseButton1Down:Connect(function()
+        local move; move = RunService.RenderStepped:Connect(function()
+            local rel = math.clamp((UserInputService:GetMouseLocation().X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+            fill.Size = UDim2.new(rel, 0, 1, 0)
+            local val = min + (max - min) * rel
+            val = (max <= 1) and math.floor(val * 100) / 100 or math.floor(val)
+            Settings[configKey] = val
+            label.Text = text .. ": " .. val
+        end)
+        UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
+    end)
+end
+
+-- === КНОПКА ЦВЕТА ===
+local colorBtn = Instance.new("TextButton", mainFrame)
+colorBtn.Size = UDim2.new(0, 80, 0, 30)
+colorBtn.Position = UDim2.new(1, -90, 1, -35)
+colorBtn.Text = "THEME"
+colorBtn.BackgroundColor3 = Color3.fromRGB(35,35,35)
+colorBtn.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", colorBtn)
+colorBtn.MouseButton1Click:Connect(function()
+    currentColorIndex = currentColorIndex + 1
+    if currentColorIndex > #ColorCycle then currentColorIndex = 1 end
+    local c = ColorCycle[currentColorIndex]
+    Settings.AccentColor = c
+    title.TextColor3 = c
+    fov_circle.Color = c
+    menuStroke.Color = c
+    container.ScrollBarImageColor3 = c
+    for _, v in pairs(mainFrame:GetDescendants()) do
+        if v.Name == "SectionBtn" then v.TextColor3 = c end
+        if v.Name == "SliderFill" then v.BackgroundColor3 = c end
+        if v.Name == "ToggleBtn" and v.BackgroundColor3 ~= Color3.fromRGB(40,40,40) then v.BackgroundColor3 = c end
+    end
+end)
+
+-- === СБОРКА МОДУЛЕЙ ===
+local aimS = createSection("AIMBOT CONTROL", 10)
+createToggle("Enable Aimbot", "Enabled", aimS)
+createToggle("Show FOV Circle", "ShowFov", aimS)
+createSlider("FOV Range", 10, 800, "Fov", aimS)
+createSlider("Smooth Speed", 0.01, 1, "Smooth", aimS)
+
+local espS = createSection("VISUAL SETTINGS", 20)
+createToggle("Global ESP", "EspEnabled", espS)
+createToggle("Player Names", "EspNames", espS)
+createToggle("Health Points", "EspHealth", espS)
+createToggle("Distance Info", "EspDistance", espS)
+createToggle("Enable Highlight", "EspHighlight", espS)
+createToggle("Show Tracers", "EspTracers", espS)
+
+local playS = createSection("PLAYER MODIFICATIONS", 30)
+createToggle("Speed Hack", "SpeedEnabled", playS)
+createSlider("Speed Value", 16, 350, "WalkSpeed", playS)
+createToggle("BunnyHop", "BhopEnabled", playS)
+createToggle("NoClip (Walls)", "NoClipEnabled", playS)
+createToggle("Infinite Jump", "InfJumpEnabled", playS)
+
+-- === ОСНОВНЫЕ ЦИКЛЫ (AIMBOT / PLAYER / WORLD) ===
+
+-- 1. Цикл NoClip
+RunService.Stepped:Connect(function()
+    if Settings.NoClipEnabled and player.Character then
+        for _, part in pairs(player.Character:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = false end
+        end
+    end
+end)
+
+-- 2. Бесконечный прыжок
+UserInputService.JumpRequest:Connect(function()
+    if Settings.InfJumpEnabled and player.Character and player.Character:FindFirstChild("Humanoid") then
+        player.Character.Humanoid:ChangeState("Jumping")
+    end
+end)
+
+-- 3. Рендер цикл (Aim + FOV + Speed)
+RunService.RenderStepped:Connect(function()
+    -- FOV Update
+    fov_circle.Visible = Settings.Enabled and Settings.ShowFov
+    fov_circle.Radius = Settings.Fov
+    fov_circle.Position = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+
+    -- Aimbot Logic
+    if Settings.Enabled and isAiming then
+        local targetPart = nil
+        local shortestDist = Settings.Fov
+        
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= player and p.Character and p.Character:FindFirstChild(Settings.AimPart) then
+                if not Settings.TeamCheck or p.Team ~= player.Team then
+                    local part = p.Character[Settings.AimPart]
+                    local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        local mag = (Vector2.new(screenPos.X, screenPos.Y) - fov_circle.Position).Magnitude
+                        if mag < shortestDist then
+                            shortestDist = mag
+                            targetPart = part
+                        end
+                    end
+                end
+            end
+        end
+        
+        if targetPart then
+            local targetCF = CFrame.new(camera.CFrame.Position, targetPart.Position)
+            camera.CFrame = camera.CFrame:Lerp(targetCF, Settings.Smooth)
+        end
+    end
+
+    -- Player Mods
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        if Settings.SpeedEnabled then player.Character.Humanoid.WalkSpeed = Settings.WalkSpeed end
+        if Settings.BhopEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Space) then 
+            player.Character.Humanoid.Jump = true 
+        end
+    end
+end)
+
+-- Регистрация игроков
+for _, p in pairs(Players:GetPlayers()) do createESP(p) end
+Players.PlayerAdded:Connect(createESP)
+
+-- Управление интерфейсом
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Settings.MenuKey then
+        mainFrame.Visible = not mainFrame.Visible
+        Settings.MenuVisible = mainFrame.Visible
+    elseif input.UserInputType == Settings.AimKey then
+        isAiming = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Settings.AimKey then isAiming = false end
+end)
