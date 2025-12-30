@@ -1,0 +1,361 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+
+local localPlayer = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+
+-- === [ КОНФИГУРАЦИЯ ] ===
+local Settings = {
+    AimbotEnabled = false,
+    TeamCheck = true,
+    WallCheck = false,
+    AimFov = 150,
+    AimSmooth = 0.1,
+    AimPart = "Head",
+    AimKey = Enum.UserInputType.MouseButton2,
+    
+    EspEnabled = true,
+    EspHighlight = true,
+    EspNames = true,
+    EspHealth = true,
+    EspTracers = false,
+    EspDistance = true,
+    FriendColor = Color3.fromRGB(0, 255, 0),
+    EnemyColor = Color3.fromRGB(255, 0, 0),
+    
+    WalkSpeedValue = 16,
+    SpeedEnabled = false,
+    BhopEnabled = false,
+    InfJumpEnabled = false,
+    SpinBotEnabled = false,
+    SpinSpeedValue = 1,
+    NoClipEnabled = false,
+    ThirdPersonEnabled = false,
+    
+    MenuKey = Enum.KeyCode.RightShift,
+    AccentColor = Color3.fromRGB(0, 255, 255),
+    RainbowActive = false
+}
+
+local isAiming = false
+local bhopPower = 0
+local themeColors = {Color3.fromRGB(0, 255, 255), Color3.fromRGB(255, 80, 80), Color3.fromRGB(80, 255, 80), "Rainbow"}
+local themeIdx = 1
+
+-- [ FOV ]
+local fov_circle = Drawing.new("Circle")
+fov_circle.Thickness = 2
+fov_circle.NumSides = 100
+fov_circle.Radius = Settings.AimFov
+fov_circle.Visible = false
+fov_circle.Color = Settings.AccentColor
+
+-- ==========================================================
+-- [ ESP СИСТЕМА ]
+-- ==========================================================
+local function applyESP(player)
+    if player == localPlayer then return end
+
+    local function setupChar(char)
+        if not char then return end
+        local head = char:WaitForChild("Head", 10)
+        local hum = char:WaitForChild("Humanoid", 10)
+        local root = char:WaitForChild("HumanoidRootPart", 10)
+
+        local bill = Instance.new("BillboardGui", char)
+        bill.Name = "Makarov_ESP"
+        bill.Adornee = head
+        bill.Size = UDim2.new(0, 200, 0, 50)
+        bill.StudsOffset = Vector3.new(0, 3, 0)
+        bill.AlwaysOnTop = true
+
+        local label = Instance.new("TextLabel", bill)
+        label.Size = UDim2.new(1, 0, 0.4, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.Font = Enum.Font.GothamBold
+        label.TextScaled = true
+
+        local hpBg = Instance.new("Frame", bill)
+        hpBg.Size = UDim2.new(0.6, 0, 0.08, 0)
+        hpBg.Position = UDim2.new(0.2, 0, 0.5, 0)
+        hpBg.BackgroundColor3 = Color3.new(0, 0, 0)
+        hpBg.BorderSizePixel = 0
+
+        local hpFill = Instance.new("Frame", hpBg)
+        hpFill.Size = UDim2.new(1, 0, 1, 0)
+        hpFill.BackgroundColor3 = Color3.new(0, 1, 0)
+        hpFill.BorderSizePixel = 0
+
+        local high = Instance.new("Highlight", char)
+        high.Name = "Makarov_High"
+
+        local tracer = Drawing.new("Line")
+        tracer.Thickness = 1.5
+
+        local conn
+        conn = RunService.RenderStepped:Connect(function()
+            if not char or not char.Parent or hum.Health <= 0 then
+                bill:Destroy(); high:Destroy(); tracer:Remove(); conn:Disconnect(); return
+            end
+
+            local isEnemy = (player.Team ~= localPlayer.Team)
+            local canShow = Settings.EspEnabled and (not Settings.TeamCheck or isEnemy)
+            local color = isEnemy and Settings.EnemyColor or Settings.FriendColor
+
+            bill.Enabled = canShow
+            high.Enabled = (canShow and Settings.EspHighlight)
+            high.FillColor = color
+
+            if canShow then
+                local dist = math.floor((root.Position - camera.CFrame.Position).Magnitude)
+                local content = ""
+                if Settings.EspNames then content = player.DisplayName end
+                if Settings.EspDistance then content = content .. " [" .. dist .. "m]" end
+                label.Text = content
+                
+                local hpRatio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                hpFill.Size = UDim2.new(hpRatio, 0, 1, 0)
+                hpFill.BackgroundColor3 = Color3.fromHSV(hpRatio * 0.33, 1, 1)
+                hpBg.Visible = Settings.EspHealth
+
+                local pos, onScreen = camera:WorldToViewportPoint(root.Position)
+                if Settings.EspTracers and onScreen then
+                    tracer.Visible = true
+                    tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+                    tracer.To = Vector2.new(pos.X, pos.Y)
+                    tracer.Color = color
+                else tracer.Visible = false end
+            else tracer.Visible = false end
+        end)
+    end
+    player.CharacterAdded:Connect(setupChar)
+    if player.Character then setupChar(player.Character) end
+end
+
+-- ==========================================================
+-- [ ИНТЕРФЕЙС ]
+-- ==========================================================
+local gui = Instance.new("ScreenGui", CoreGui)
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 360, 0, 680)
+main.Position = UDim2.new(0.5, -180, 0.5, -340)
+main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+main.Visible = false
+Instance.new("UICorner", main)
+
+local mainStroke = Instance.new("UIStroke", main)
+mainStroke.Thickness = 2
+mainStroke.Color = Settings.AccentColor
+
+local topBar = Instance.new("Frame", main)
+topBar.Size = UDim2.new(1, 0, 0, 50)
+topBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UICorner", topBar)
+
+local title = Instance.new("TextLabel", topBar)
+title.Size = UDim2.new(1, 0, 1, 0)
+title.Text = "MAKAROV ULTIMATE V33"
+title.TextColor3 = Settings.AccentColor
+title.Font = Enum.Font.GothamBold
+title.TextSize = 20
+title.BackgroundTransparency = 1
+
+local scroll = Instance.new("ScrollingFrame", main)
+scroll.Size = UDim2.new(1, -10, 1, -75)
+scroll.Position = UDim2.new(0, 5, 0, 60)
+scroll.BackgroundTransparency = 1
+scroll.ScrollBarThickness = 2
+scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local scrollLayout = Instance.new("UIListLayout", scroll)
+scrollLayout.Padding = UDim.new(0, 15)
+
+local function applyTheme()
+    local c = Settings.AccentColor
+    mainStroke.Color = c
+    title.TextColor3 = c
+    fov_circle.Color = c
+    for _, obj in pairs(main:GetDescendants()) do
+        if obj.Name == "SectionHeader" then obj.TextColor3 = c end
+        if obj.Name == "ToggleBtn" and obj.Text:find("ON") then obj.BackgroundColor3 = c end
+        if obj.Name == "FillBar" then obj.BackgroundColor3 = c end
+    end
+end
+
+-- === [ КОНСТРУКТОР СЕКЦИЙ ] ===
+local function buildSection(name)
+    local container = Instance.new("Frame", scroll)
+    container.Size = UDim2.new(1, -5, 0, 0)
+    container.AutomaticSize = Enum.AutomaticSize.Y
+    container.BackgroundTransparency = 1
+    local layout = Instance.new("UIListLayout", container)
+    layout.Padding = UDim.new(0, 5)
+
+    local header = Instance.new("TextButton", container)
+    header.Name = "SectionHeader"
+    header.Size = UDim2.new(1, 0, 0, 45)
+    header.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    header.Text = "  ▼  " .. name
+    header.TextColor3 = Settings.AccentColor
+    header.Font = Enum.Font.GothamBold
+    header.TextSize = 16
+    header.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", header)
+
+    local content = Instance.new("Frame", container)
+    content.Name = "SettingsContent"
+    content.Size = UDim2.new(1, 0, 0, 0)
+    content.AutomaticSize = Enum.AutomaticSize.Y
+    content.BackgroundTransparency = 1
+    Instance.new("UIListLayout", content).Padding = UDim.new(0, 8)
+
+    header.MouseButton1Click:Connect(function()
+        content.Visible = not content.Visible
+        header.Text = (content.Visible and "  ▼  " or "  ▶  ") .. name
+    end)
+    return content
+end
+
+local function addToggle(parent, text, key)
+    local btn = Instance.new("TextButton", parent)
+    btn.Name = "ToggleBtn"
+    btn.Size = UDim2.new(1, 0, 0, 42)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 14
+    Instance.new("UICorner", btn)
+
+    local function update()
+        btn.Text = text .. ": " .. (Settings[key] and "ON" or "OFF")
+        btn.BackgroundColor3 = Settings[key] and Settings.AccentColor or Color3.fromRGB(40, 40, 40)
+        btn.TextColor3 = Settings[key] and Color3.new(0,0,0) or Color3.new(1,1,1)
+        if key == "ThirdPersonEnabled" then localPlayer.CameraMaxZoomDistance = Settings[key] and 50 or 12.5 end
+    end
+    btn.MouseButton1Click:Connect(function() Settings[key] = not Settings[key]; update() end)
+    update()
+end
+
+local function addSlider(parent, text, min, max, key)
+    local frame = Instance.new("Frame", parent)
+    frame.Size = UDim2.new(1, 0, 0, 60); frame.BackgroundTransparency = 1
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, 0, 0, 25); label.Text = text .. ": " .. Settings[key]; label.TextColor3 = Color3.new(1,1,1); label.Font = Enum.Font.GothamBold; label.BackgroundTransparency = 1
+    local bg = Instance.new("Frame", frame)
+    bg.Size = UDim2.new(1, -10, 0, 6); bg.Position = UDim2.new(0, 5, 0, 40); bg.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    local fill = Instance.new("Frame", bg)
+    fill.Name = "FillBar"; fill.Size = UDim2.new((Settings[key]-min)/(max-min), 0, 1, 0); fill.BackgroundColor3 = Settings.AccentColor
+    local trigger = Instance.new("TextButton", bg)
+    trigger.Size = UDim2.new(1, 0, 5, 0); trigger.BackgroundTransparency = 1; trigger.Text = ""
+    trigger.MouseButton1Down:Connect(function()
+        local move; move = RunService.RenderStepped:Connect(function()
+            local rel = math.clamp((UserInputService:GetMouseLocation().X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+            fill.Size = UDim2.new(rel, 0, 1, 0); local val = math.floor(min + (max - min) * rel)
+            Settings[key] = val; label.Text = text .. ": " .. val
+            if key == "AimFov" then fov_circle.Radius = val end
+        end)
+        UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
+    end)
+end
+
+-- === [ НАПОЛНЕНИЕ ] ===
+local aimS = buildSection("AIMBOT")
+addToggle(aimS, "Enable Aimbot", "AimbotEnabled")
+addToggle(aimS, "Team Check", "TeamCheck")
+addSlider(aimS, "FOV Radius", 10, 800, "AimFov")
+
+local espS = buildSection("VISUALS")
+addToggle(espS, "Master ESP", "EspEnabled")
+addToggle(espS, "Names", "EspNames")
+addToggle(espS, "Distance", "EspDistance")
+addToggle(espS, "Health Bars", "EspHealth")
+addToggle(espS, "Highlights", "EspHighlight")
+addToggle(espS, "Tracers", "EspTracers")
+
+local plyS = buildSection("PLAYER")
+addToggle(plyS, "Speed Hack", "SpeedEnabled")
+addSlider(plyS, "Walk Speed", 16, 250, "WalkSpeedValue")
+addToggle(plyS, "Third Person", "ThirdPersonEnabled")
+addToggle(plyS, "Bunny Hop", "BhopEnabled")
+addToggle(plyS, "Infinite Jump", "InfJumpEnabled")
+addToggle(plyS, "SpinBot", "SpinBotEnabled")
+addSlider(plyS, "Spin Speed", 1, 10, "SpinSpeedValue")
+addToggle(plyS, "NoClip", "NoClipEnabled")
+
+-- ==========================================================
+-- [ ЛОГИКА ]
+-- ==========================================================
+RunService.RenderStepped:Connect(function()
+    if Settings.RainbowActive then Settings.AccentColor = Color3.fromHSV(tick() % 5 / 5, 1, 1); applyTheme() end
+    fov_circle.Visible = Settings.AimbotEnabled; fov_circle.Position = UserInputService:GetMouseLocation()
+
+    -- AIMBOT
+    if Settings.AimbotEnabled and isAiming then
+        local target = nil; local maxDist = Settings.AimFov; local center = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= localPlayer and p.Character and p.Character:FindFirstChild(Settings.AimPart) then
+                if not Settings.TeamCheck or p.Team ~= localPlayer.Team then
+                    local screenPos, onScreen = camera:WorldToViewportPoint(p.Character[Settings.AimPart].Position)
+                    if onScreen then
+                        local mag = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                        if mag < maxDist then maxDist = mag; target = p end
+                    end
+                end
+            end
+        end
+        if target then camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, target.Character[Settings.AimPart].Position), 0.1) end
+    end
+
+    -- PLAYER
+    if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local root = localPlayer.Character.HumanoidRootPart
+        local hum = localPlayer.Character.Humanoid
+        
+        if Settings.SpeedEnabled then hum.WalkSpeed = Settings.WalkSpeedValue end
+        if Settings.NoClipEnabled then
+            for _, v in pairs(localPlayer.Character:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = false end end
+        end
+        
+        -- УЛУЧШЕННЫЙ SPINBOT
+        if Settings.SpinBotEnabled then
+            hum.AutoRotate = false -- Отключаем конфликт анимаций ног
+            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(Settings.SpinSpeedValue), 0)
+        else
+            hum.AutoRotate = true -- Возвращаем как было
+        end
+
+        if Settings.BhopEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            if hum.FloorMaterial ~= Enum.Material.Air then hum:ChangeState(3); bhopPower = math.clamp(bhopPower+0.01, 0, 0.4)
+            root.Velocity = root.Velocity + (hum.MoveDirection * (Settings.WalkSpeedValue * bhopPower)) end
+        else bhopPower = 0 end
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(i, g)
+    if not g then
+        if i.KeyCode == Settings.MenuKey then main.Visible = not main.Visible
+        elseif i.UserInputType == Settings.AimKey then isAiming = true end
+    end
+end)
+UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Settings.AimKey then isAiming = false end end)
+UserInputService.JumpRequest:Connect(function() if Settings.InfJumpEnabled and localPlayer.Character then localPlayer.Character.Humanoid:ChangeState(3) end end)
+
+-- [ DRAG ]
+local drag, dS, sP
+topBar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = true; dS = i.Position; sP = main.Position end end)
+UserInputService.InputChanged:Connect(function(i) if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
+    local delta = i.Position - dS; main.Position = UDim2.new(sP.X.Scale, sP.X.Offset+delta.X, sP.Y.Scale, sP.Y.Offset+delta.Y)
+end end)
+topBar.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end end)
+
+-- [ THEME ]
+local themeBtn = Instance.new("TextButton", main)
+themeBtn.Size = UDim2.new(0, 100, 0, 35); themeBtn.Position = UDim2.new(1, -110, 1, -45); themeBtn.Text = "CHANGE THEME"; themeBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35); themeBtn.TextColor3 = Color3.new(1,1,1); themeBtn.Font = Enum.Font.GothamBold; themeBtn.TextSize = 10; Instance.new("UICorner", themeBtn)
+themeBtn.MouseButton1Click:Connect(function()
+    themeIdx = (themeIdx % #themeColors) + 1; local sel = themeColors[themeIdx]
+    if sel == "Rainbow" then Settings.RainbowActive = true else Settings.RainbowActive = false; Settings.AccentColor = sel; applyTheme() end
+end)
+
+for _, p in pairs(Players:GetPlayers()) do applyESP(p) end
+Players.PlayerAdded:Connect(applyESP)
