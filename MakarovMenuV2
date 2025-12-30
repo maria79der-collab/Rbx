@@ -158,7 +158,7 @@ Instance.new("UICorner", topBar)
 
 local title = Instance.new("TextLabel", topBar)
 title.Size = UDim2.new(1, 0, 1, 0)
-title.Text = "MAKAROV ULTIMATE V33"
+title.Text = "MAKAROV ULTIMATE V2"
 title.TextColor3 = Settings.AccentColor
 title.Font = Enum.Font.GothamBold
 title.TextSize = 20
