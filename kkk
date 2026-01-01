@@ -49,8 +49,8 @@ local Settings = {
     
     ShowStats = false,
     FullBright = false,
-	FovChangerValue = 70
-    FovChangerEnabled = false
+	FovChangerValue = 70,
+    FovChangerEnabled = false,
     
     NoSpreadEnabled = false,
     InfAmmoEnabled = false,
@@ -117,6 +117,25 @@ statsLabel.TextXAlignment = Enum.TextXAlignment.Left
 statsLabel.Visible = false
 statsLabel.Parent = CoreGui:FindFirstChild("RobloxGui") or CoreGui
 
+local function rejoinServer()
+    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, localPlayer)
+end
+
+local function serverHop()
+    local sfUrl = "https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=100"
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet(sfUrl:format(game.PlaceId)))
+    end)
+    if success then
+        for _, server in pairs(result.data) do
+            if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id)
+                break
+            end
+        end
+    end
+end
+
 local function applyWeaponSettings()
     local WeaponsFolder = ReplicatedStorage:FindFirstChild("Weapons")
     if not WeaponsFolder then return end
@@ -135,47 +154,8 @@ local function applyWeaponSettings()
                 end
             end
         end
-
-		-- Функция для перезахода на тот же сервер
-local function rejoinServer()
-    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, localPlayer)
-end
-
--- Функция для поиска нового сервера
-local function serverHop()
-    local HttpService = game:GetService("HttpService")
-    local TeleportService = game:GetService("TeleportService")
-    local servers = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100")).data
     
-    for _, server in pairs(servers) do
-        if server.playing < server.maxPlayers and server.id ~= game.JobId then
-            TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id)
-            break
-        end
-    end
-end
-
--- Вспомогательная функция для создания обычной кнопки (без переключателя)
-local function addButton(parent, text, callback)
-    local btn = Instance.new("TextButton", parent)
-    btn.Size = UDim2.new(1, 0, 0, 42)
-    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.GothamBold
-    btn.TextSize = 14
-    Instance.new("UICorner", btn)
     
-    btn.MouseButton1Click:Connect(function()
-        -- Эффект нажатия
-        btn.BackgroundColor3 = Settings.AccentColor
-        btn.TextColor3 = Color3.new(0,0,0)
-        callback()
-        task.wait(0.1)
-        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-        btn.TextColor3 = Color3.new(1,1,1)
-    end)
-end
 
         local fireRate = weapon:FindFirstChild("FireRate")
         if fireRate then
@@ -449,6 +429,27 @@ local function addSlider(parent, text, min, max, key)
     end)
 end
 
+local function addButton(parent, text, callback)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(1, 0, 0, 42)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 14
+    Instance.new("UICorner", btn)
+
+btn.MouseButton1Click:Connect(function()
+        -- Эффект нажатия
+        btn.BackgroundColor3 = Settings.AccentColor
+        btn.TextColor3 = Color3.new(0,0,0)
+        callback()
+        task.wait(0.1)
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        btn.TextColor3 = Color3.new(1,1,1)
+    end)
+end
+
 local function addDropdown(parent, text, list)
     local frame = Instance.new("Frame", parent)
     frame.Size = UDim2.new(1, 0, 0, 42)
@@ -553,8 +554,6 @@ addToggle(miscS, "Show FPS & Ping", "ShowStats"); addToggle(miscS, "FullBright",
 addDropdown(miscS, "Skybox Selection", skyboxes)
 addToggle(miscS, "Enable FOV Changer", "FovChangerEnabled")
 addSlider(miscS, "Field of View", 70, 120, "FovChangerValue")
-
--- Кнопки серверов
 addButton(miscS, "Rejoin Server", rejoinServer)
 addButton(miscS, "Server Hop (New Server)", serverHop)
 
