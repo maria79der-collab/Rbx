@@ -7,6 +7,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Lighting = game:GetService("Lighting")
 local GuiService = game:GetService("GuiService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
 
 local localPlayer = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -46,6 +48,9 @@ local Settings = {
     SpinSpeedValue = 50,
     NoClipEnabled = false,
     ThirdPersonEnabled = false,
+	currentBhopSpeed = 16,
+    maxBhopSpeed = 150,
+    accelRate = 0.2,
     
     ShowStats = false,
     FullBright = false,
@@ -311,7 +316,7 @@ local function applyESP(player)
             high.Enabled = (canShow and Settings.EspHighlight)
             high.FillColor = renderColor
             high.OutlineColor = renderColor
-            label.TextColor3 = Color3.new(1, 1, 1) -- Текст всегда белый
+            label.TextColor3 = Color3.new(1, 1, 1)
 
             if canShow then
                 local dist = math.floor((root.Position - camera.CFrame.Position).Magnitude)
@@ -370,7 +375,7 @@ local topBar = Instance.new("Frame", main)
 topBar.Size = UDim2.new(1, 0, 0, 50); topBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", topBar)
 
 local title = Instance.new("TextLabel", topBar)
-title.Size = UDim2.new(1, 0, 1, 0); title.Text = "MAKAROV ULTIMATE V3"; title.TextColor3 = Settings.AccentColor; title.Font = Enum.Font.GothamBold; title.TextSize = 20; title.BackgroundTransparency = 1
+title.Size = UDim2.new(1, 0, 1, 0); title.Text = "MAKAROV ULTIMATE V4"; title.TextColor3 = Settings.AccentColor; title.Font = Enum.Font.GothamBold; title.TextSize = 20; title.BackgroundTransparency = 1
 
 local scroll = Instance.new("ScrollingFrame", main)
 scroll.Size = UDim2.new(1, -10, 1, -75); scroll.Position = UDim2.new(0, 5, 0, 60); scroll.BackgroundTransparency = 1; scroll.ScrollBarThickness = 2; scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
@@ -535,7 +540,7 @@ local function addDropdown(parent, text, list)
 end
 
 local aimS = buildSection("AIMBOT")
-addToggle(aimS, "Enable Aimbot", "AimbotEnabled"); addToggle(aimS, "Triggerbot (Auto)", "TriggerbotEnabled"); addToggle(aimS, "Team Check", "TeamCheck"); addSlider(aimS, "FOV Radius", 10, 800, "AimFov"); addSlider(aimS, "Smoothness", 1, 100, "AimSmooth")
+addToggle(aimS, "Enable Aimbot", "AimbotEnabled"); addToggle(aimS, "Triggerbot", "TriggerbotEnabled"); addToggle(aimS, "Team Check", "TeamCheck"); addSlider(aimS, "FOV Radius", 10, 800, "AimFov"); addSlider(aimS, "Smoothness", 1, 100, "AimSmooth")
 
 local rageS = buildSection("RAGEBOT")
 addToggle(rageS, "Enable Ragebot", "RagebotEnabled"); addToggle(rageS, "Target TP & Spin", "RageTargetTP"); addToggle(rageS, "Auto Fire", "RageAutoFire"); addToggle(rageS, "Wall Check", "RageWallCheck")
@@ -547,62 +552,152 @@ local wpnS = buildSection("WEAPON")
 addToggle(wpnS, "No Spread", "NoSpreadEnabled"); addToggle(wpnS, "Infinite Ammo", "InfAmmoEnabled"); addToggle(wpnS, "Rapid Fire", "RapidFireEnabled"); addInput(wpnS, "Bullets Amount:", "BulletInput"); addToggle(wpnS, "Custom Bullets", "MultiBulletsEnabled")
 
 local plyS = buildSection("PLAYER")
-addToggle(plyS, "Speed Hack", "SpeedEnabled"); addSlider(plyS, "Walk Speed", 16, 250, "WalkSpeedValue"); addToggle(plyS, "Third Person", "ThirdPersonEnabled"); addToggle(plyS, "CS-Style Bunny Hop", "BhopEnabled"); addToggle(plyS, "Infinite Jump", "InfJumpEnabled"); addToggle(plyS, "SpinBot", "SpinBotEnabled"); addSlider(plyS, "Spin Speed", 10, 200, "SpinSpeedValue"); addToggle(plyS, "NoClip", "NoClipEnabled")
+addToggle(plyS, "Speed Hack", "SpeedEnabled"); addSlider(plyS, "Walk Speed", 16, 250, "WalkSpeedValue"); addToggle(plyS, "Third Person", "ThirdPersonEnabled"); addToggle(plyS, "Bunny Hop", "BhopEnabled"); addToggle(plyS, "Infinite Jump", "InfJumpEnabled"); addToggle(plyS, "SpinBot", "SpinBotEnabled"); addSlider(plyS, "Spin Speed", 10, 200, "SpinSpeedValue"); addToggle(plyS, "NoClip", "NoClipEnabled")
 
-local miscS = buildSection("MISC / ПРОЧЕЕ")
+local miscS = buildSection("MISC")
 addToggle(miscS, "Show FPS & Ping", "ShowStats"); addToggle(miscS, "FullBright", "FullBright")
 addDropdown(miscS, "Skybox Selection", skyboxes)
 addToggle(miscS, "Enable FOV Changer", "FovChangerEnabled")
 addSlider(miscS, "Field of View", 70, 120, "FovChangerValue")
 addButton(miscS, "Rejoin Server", rejoinServer)
-addButton(miscS, "Server Hop (New Server)", serverHop)
+addButton(miscS, "Server Hop", serverHop)
 
 
 RunService.RenderStepped:Connect(function()
-if Settings.FovChangerEnabled then
-    camera.FieldOfView = Settings.FovChangerValue
-else
-    -- Если выключено, можно вернуть стандартный или не трогать (зависит от игры)
-    -- camera.FieldOfView = 70 
-end
+    -- [ FOV Changer ]
+    if Settings.FovChangerEnabled then
+        camera.FieldOfView = Settings.FovChangerValue
+    end
+
     local isMenuOpen = main.Visible
     local isTyping = UserInputService:GetFocusedTextBox() ~= nil
     local isRobloxMenu = GuiService.SelectedCoreObject ~= nil
 
-    if isMenuOpen or isTyping or isRobloxMenu then fov_circle.Visible = false else fov_circle.Visible = Settings.AimbotEnabled and not Settings.RagebotEnabled; fov_circle.Position = UserInputService:GetMouseLocation() end
+    -- [ FOV Circle ]
+    if isMenuOpen or isTyping or isRobloxMenu then 
+        fov_circle.Visible = false 
+    else 
+        fov_circle.Visible = Settings.AimbotEnabled and not Settings.RagebotEnabled
+        fov_circle.Position = UserInputService:GetMouseLocation() 
+    end
+
+    -- [ Visuals & Stats ]
     if Settings.RainbowActive then Settings.AccentColor = Color3.fromHSV(tick() % 5 / 5, 1, 1); applyTheme() end
-    if Settings.FullBright then Lighting.Ambient = Color3.new(1, 1, 1); Lighting.ColorShift_Top = Color3.new(1, 1, 1) else Lighting.Ambient = origAmbient; Lighting.ColorShift_Top = origColorShift end
+    if Settings.FullBright then 
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.ColorShift_Top = Color3.new(1, 1, 1) 
+    else 
+        Lighting.Ambient = origAmbient
+        Lighting.ColorShift_Top = origColorShift 
+    end
 
     if Settings.ShowStats then
-        statsLabel.Visible = true; local fps = math.floor(1/RunService.RenderStepped:Wait()); local ping = math.floor(localPlayer:GetNetworkPing() * 1000); statsLabel.Text = "FPS: " .. fps .. "\nPING: " .. ping .. "ms"
-    else statsLabel.Visible = false end
+        statsLabel.Visible = true
+        local fps = math.floor(1/RunService.RenderStepped:Wait())
+        local ping = math.floor(localPlayer:GetNetworkPing() * 1000)
+        statsLabel.Text = "FPS: " .. fps .. "\nPING: " .. ping .. "ms"
+    else 
+        statsLabel.Visible = false 
+    end
 
+    -- [ Player Character Logic ]
     local myChar = localPlayer.Character
     local myHum = myChar and myChar:FindFirstChild("Humanoid")
     local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
 
+    if myChar and myRoot and myHum and myHum.Health > 0 then
+    if Settings.BhopEnabled then
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            -- Проверка: стоим ли мы на земле
+            if myHum.FloorMaterial ~= Enum.Material.Air then
+                -- Прыгаем
+                myHum:ChangeState(Enum.HumanoidStateType.Jumping)
+                
+                -- Если только начали прыгать, берем за основу текущую скорость
+                if currentBhopSpeed < Settings.WalkSpeedValue then
+                    currentBhopSpeed = Settings.WalkSpeedValue
+                end
+                
+                -- РЕЗКИЙ РАЗГОН: увеличиваем скорость каждый раз при касании земли
+                currentBhopSpeed = currentBhopSpeed + Settings.accelRate
+                
+                -- Лимит, чтобы сервер не лагал
+                if currentBhopSpeed > Settings.maxBhopSpeed then
+                    currentBhopSpeed = Settings.maxBhopSpeed
+                end
+            end
+            
+            -- ПРИНУДИТЕЛЬНОЕ ДВИЖЕНИЕ В ВОЗДУХЕ (убирает торможение Roblox)
+            local moveDir = myHum.MoveDirection
+            if moveDir.Magnitude > 0 then
+                -- Мы буквально перезаписываем скорость физического тела
+                myRoot.Velocity = Vector3.new(
+                    moveDir.X * currentBhopSpeed, 
+                    myRoot.Velocity.Y, -- оставляем прыжок/падение как есть
+                    moveDir.Z * currentBhopSpeed
+                )
+            end
+        else
+            -- Если пробел отпущен, плавно сбрасываем скорость (опционально)
+            currentBhopSpeed = Settings.WalkSpeedValue
+        end
+    end
+
+    -- Обычный SpeedHack (только если не зажат Bhop)
+    if Settings.SpeedEnabled and not (Settings.BhopEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Space)) then
+        myHum.WalkSpeed = Settings.WalkSpeedValue
+    end
+
+        -- 2. SPEEDHACK (Работает, если не в воздухе при Бхопе)
+        if Settings.SpeedEnabled then
+            myHum.WalkSpeed = Settings.WalkSpeedValue
+        end
+
+        -- 3. SPINBOT
+        if Settings.SpinBotEnabled then
+            myRoot.CFrame = myRoot.CFrame * CFrame.Angles(0, math.rad(Settings.SpinSpeedValue), 0)
+        end
+
+        -- 4. NOCLIP
+        if Settings.NoClipEnabled then
+            for _, part in pairs(myChar:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
+        end
+    end
+
+    -- [ AIMBOT & RAGEBOT LOGIC ]
     if not isMenuOpen and not isTyping and not isRobloxMenu then
         if Settings.RagebotEnabled or (Settings.AimbotEnabled and isAiming) then
             local targetPlayer = getClosestTarget()
             if targetPlayer and targetPlayer.Character then
                 local part = targetPlayer.Character:FindFirstChild(Settings.AimPart)
                 local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                
                 if part and targetRoot then
                     local isVisible = true
                     if Settings.RagebotEnabled and Settings.RageWallCheck and not Settings.RageTargetTP then
-                        local rayParam = RaycastParams.new(); rayParam.FilterType = Enum.RaycastFilterType.Exclude; rayParam.FilterDescendantsInstances = {myChar, camera}
+                        local rayParam = RaycastParams.new()
+                        rayParam.FilterType = Enum.RaycastFilterType.Exclude
+                        rayParam.FilterDescendantsInstances = {myChar, camera}
                         local rayResult = Workspace:Raycast(camera.CFrame.Position, (part.Position - camera.CFrame.Position), rayParam)
                         isVisible = (not rayResult or rayResult.Instance:IsDescendantOf(targetPlayer.Character))
                     end
+
                     if isVisible or Settings.RageTargetTP then
                         if Settings.RagebotEnabled then
                             camera.CFrame = CFrame.lookAt(camera.CFrame.Position, part.Position)
                             if Settings.RageTargetTP and myRoot then
-                                local speed = tick() * 10; local radius = 5; local offsetX = math.sin(speed) * radius; local offsetZ = math.cos(speed) * radius
-                                myRoot.CFrame = CFrame.new(targetRoot.Position + Vector3.new(offsetX, 2, offsetZ), targetRoot.Position); myRoot.Velocity = Vector3.new(0,0,0)
+                                local speed = tick() * 10; local radius = 5
+                                local offsetX = math.sin(speed) * radius; local offsetZ = math.cos(speed) * radius
+                                myRoot.CFrame = CFrame.new(targetRoot.Position + Vector3.new(offsetX, 2, offsetZ), targetRoot.Position)
+                                myRoot.Velocity = Vector3.new(0,0,0)
                             end
                             if Settings.RageAutoFire and tick() - lastRageShot > 0.05 then
-                                VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, true, game, 0); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, false, game, 0); lastRageShot = tick()
+                                VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, true, game, 0)
+                                task.wait(0.01)
+                                VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, false, game, 0)
+                                lastRageShot = tick()
                             end
                         else
                             camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, part.Position), Settings.AimSmooth / 100)
