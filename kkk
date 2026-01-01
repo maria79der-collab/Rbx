@@ -1,0 +1,657 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Lighting = game:GetService("Lighting")
+local GuiService = game:GetService("GuiService")
+
+local localPlayer = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+local Mouse = localPlayer:GetMouse()
+
+local Settings = {
+    AimbotEnabled = false,
+    RagebotEnabled = false,
+    RageAutoFire = false,
+    RageTargetTP = false,
+    RageWallCheck = true,
+    
+    TriggerbotEnabled = false, 
+    TeamCheck = true,
+    WallCheck = true,
+    AimFov = 150,
+    AimSmooth = 15, 
+    AimPart = "Head",
+    AimKey = Enum.UserInputType.MouseButton2,
+    
+    EspEnabled = true,
+    EspHighlight = true,
+    EspNames = true,
+    EspHealth = true,
+    EspTracers = false,
+    EspDistance = true,
+    EspSkeletons = false,
+    
+    FriendColor = Color3.fromRGB(0, 255, 0),
+    EnemyColor = Color3.fromRGB(255, 0, 0),
+    
+    WalkSpeedValue = 16,
+    SpeedEnabled = false,
+    BhopEnabled = false,
+    InfJumpEnabled = false,
+    SpinBotEnabled = false,
+    SpinSpeedValue = 50,
+    NoClipEnabled = false,
+    ThirdPersonEnabled = false,
+    
+    ShowStats = false,
+    FullBright = false,
+	FovChangerValue = 70
+    FovChangerEnabled = false
+    
+    NoSpreadEnabled = false,
+    InfAmmoEnabled = false,
+    RapidFireEnabled = false,
+    MultiBulletsEnabled = false,
+    BulletInput = "1", 
+    
+    MenuKey = Enum.KeyCode.RightShift,
+    AccentColor = Color3.fromRGB(0, 255, 255),
+    RainbowActive = false
+}
+
+local isAiming = false
+local themeColors = {Color3.fromRGB(0, 255, 255), Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 80, 80), Color3.fromRGB(80, 255, 80), Color3.fromRGB(180, 80, 255), Color3.fromRGB(255, 150, 0), Color3.fromRGB(255, 80, 200), Color3.fromRGB(255, 255, 0), "Rainbow"}
+local themeIdx = 1
+local OriginalWeaponValues = {} 
+local lastTriggerShot = 0 
+local lastRageShot = 0
+
+local origAmbient = Lighting.Ambient
+local origColorShift = Lighting.ColorShift_Top
+
+-- [ SKYBOX DATA ]
+local skyboxes = {
+    ["Default"] = "reset",
+    
+    ["Skybox 1"] = {Bk=108929045660200, Dn=78646480540009, Ft=90546017435179, Lf=109838453114563, Rt=94190734796082, Up=126944775797063},
+    
+    ["Skybox 2"] = {Bk=12635309703, Dn=12635311686, Ft=12635312870, Lf=12635313718, Rt=12635315817, Up=12635316856},
+    
+    ["Skybox 3"] = {Bk=2029210131, Dn=2029210773, Ft=2029211409, Lf=2029212393, Rt=2029212849, Up=2029213271},
+    
+    ["Skybox 4"] = {Bk=17279854976, Dn=17279856318, Ft=17279858447, Lf=17279860360, Rt=17279862234, Up=17279864507},
+    
+    ["Skybox 5"] = {Bk=3996434247, Dn=5364210014, Ft=3996436307, Lf=3996437464, Rt=3996438044, Up=3996439796},
+    
+    ["Skybox 6"] = {Bk=2176109632, Dn=1181585971, Ft=2176109632, Lf=2176109632, Rt=2176109632, Up=2176110058},
+    
+    ["Skybox 7"] = {Bk=2810233801, Dn=2810233801, Ft=2810233801, Lf=2810233801, Rt=2810233801, Up=2810233801},
+    
+    ["Skybox 8"] = {Bk=14353054687, Dn=14353061766, Ft=14353057742, Lf=14353059956, Rt=14353052084, Up=14353048099},
+    
+    ["Skybox 9"] = {Bk=566616113, Dn=566616232, Ft=566616141, Lf=566616044, Rt=566616082, Up=566616187},
+    
+    ["Skybox 10"] = {Bk=159454299, Dn=159454296, Ft=159454293, Lf=159454286, Rt=159454300, Up=159454288}
+}
+
+local fov_circle = Drawing.new("Circle")
+fov_circle.Thickness = 2
+fov_circle.NumSides = 100
+fov_circle.Radius = Settings.AimFov
+fov_circle.Visible = false
+fov_circle.Color = Settings.AccentColor
+
+-- [ ПАНЕЛЬ СТАТИСТИКИ ]
+local statsLabel = Instance.new("TextLabel")
+statsLabel.Size = UDim2.new(0, 200, 0, 50)
+statsLabel.Position = UDim2.new(0, 10, 0, 10)
+statsLabel.BackgroundTransparency = 1
+statsLabel.TextColor3 = Color3.new(1, 1, 1)
+statsLabel.Font = Enum.Font.Code
+statsLabel.TextSize = 16
+statsLabel.TextXAlignment = Enum.TextXAlignment.Left
+statsLabel.Visible = false
+statsLabel.Parent = CoreGui:FindFirstChild("RobloxGui") or CoreGui
+
+local function applyWeaponSettings()
+    local WeaponsFolder = ReplicatedStorage:FindFirstChild("Weapons")
+    if not WeaponsFolder then return end
+
+    for _, weapon in ipairs(WeaponsFolder:GetChildren()) do
+        local spread = weapon:FindFirstChild("Spread")
+        if spread then
+            for _, v in ipairs(spread:GetDescendants()) do
+                if v:IsA("NumberValue") or v:IsA("IntValue") then
+                    if Settings.NoSpreadEnabled then
+                        if not OriginalWeaponValues[v] then OriginalWeaponValues[v] = v.Value end
+                        v.Value = 0
+                    else
+                        if OriginalWeaponValues[v] then v.Value = OriginalWeaponValues[v] end
+                    end
+                end
+            end
+        end
+
+		-- Функция для перезахода на тот же сервер
+local function rejoinServer()
+    game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId, localPlayer)
+end
+
+-- Функция для поиска нового сервера
+local function serverHop()
+    local HttpService = game:GetService("HttpService")
+    local TeleportService = game:GetService("TeleportService")
+    local servers = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100")).data
+    
+    for _, server in pairs(servers) do
+        if server.playing < server.maxPlayers and server.id ~= game.JobId then
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id)
+            break
+        end
+    end
+end
+
+-- Вспомогательная функция для создания обычной кнопки (без переключателя)
+local function addButton(parent, text, callback)
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(1, 0, 0, 42)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    btn.Text = text
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 14
+    Instance.new("UICorner", btn)
+    
+    btn.MouseButton1Click:Connect(function()
+        -- Эффект нажатия
+        btn.BackgroundColor3 = Settings.AccentColor
+        btn.TextColor3 = Color3.new(0,0,0)
+        callback()
+        task.wait(0.1)
+        btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        btn.TextColor3 = Color3.new(1,1,1)
+    end)
+end
+
+        local fireRate = weapon:FindFirstChild("FireRate")
+        if fireRate then
+            if Settings.RapidFireEnabled then
+                if not OriginalWeaponValues[fireRate] then OriginalWeaponValues[fireRate] = fireRate.Value end
+                fireRate.Value = 0.01 
+            elseif OriginalWeaponValues[fireRate] then
+                fireRate.Value = OriginalWeaponValues[fireRate]
+            end
+        end
+
+        local bullets = weapon:FindFirstChild("Bullets")
+        if bullets then
+            if Settings.MultiBulletsEnabled then
+                if not OriginalWeaponValues[bullets] then OriginalWeaponValues[bullets] = bullets.Value end
+                bullets.Value = tonumber(Settings.BulletInput) or 1
+            elseif OriginalWeaponValues[bullets] then
+                bullets.Value = OriginalWeaponValues[bullets]
+            end
+        end
+        
+        local ammo = weapon:FindFirstChild("Ammo")
+        local stored = weapon:FindFirstChild("StoredAmmo")
+
+        if Settings.InfAmmoEnabled then
+            if ammo and (ammo:IsA("NumberValue") or ammo:IsA("IntValue")) then
+                if not OriginalWeaponValues[ammo] then OriginalWeaponValues[ammo] = ammo.Value end
+                ammo.Value = 999
+            end
+            if stored and (stored:IsA("NumberValue") or stored:IsA("IntValue")) then
+                if not OriginalWeaponValues[stored] then OriginalWeaponValues[stored] = stored.Value end
+                stored.Value = 999
+            end
+        else
+            if ammo and OriginalWeaponValues[ammo] then ammo.Value = OriginalWeaponValues[ammo] end
+            if stored and OriginalWeaponValues[stored] then stored.Value = OriginalWeaponValues[stored] end
+        end
+    end
+end
+
+local function getClosestTarget()
+    local myChar = localPlayer.Character
+    local myHum = myChar and myChar:FindFirstChild("Humanoid")
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    
+    if not myRoot or not myHum or myHum.Health <= 0 then return nil end
+
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+
+    for _, otherPlayer in ipairs(Players:GetPlayers()) do
+        if otherPlayer ~= localPlayer and otherPlayer.Character then
+            local root = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local hum = otherPlayer.Character:FindFirstChild("Humanoid")
+            
+            if root and hum and hum.Health > 0 then
+                if Settings.TeamCheck and otherPlayer.Team == localPlayer.Team then continue end
+                
+                local targetPart = otherPlayer.Character:FindFirstChild(Settings.AimPart) or root
+
+                if Settings.RagebotEnabled then
+                    local worldDist = (root.Position - myRoot.Position).Magnitude
+                    if worldDist < shortestDistance then
+                        shortestDistance = worldDist
+                        closestPlayer = otherPlayer
+                    end
+                else
+                    local screenPos, onScreen = camera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                        if screenDist < Settings.AimFov and screenDist < shortestDistance then
+                            shortestDistance = screenDist
+                            closestPlayer = otherPlayer
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+local function applyESP(player)
+    if player == localPlayer then return end
+
+    local function setupChar(char)
+        if not char then return end
+        local head = char:WaitForChild("Head", 15)
+        local hum = char:WaitForChild("Humanoid", 15)
+        local root = char:WaitForChild("HumanoidRootPart", 15)
+
+        local bill = Instance.new("BillboardGui", char)
+        bill.Name = "Makarov_ESP"; bill.Adornee = head; bill.Size = UDim2.new(0, 200, 0, 50); bill.StudsOffset = Vector3.new(0, 3, 0); bill.AlwaysOnTop = true
+
+        local label = Instance.new("TextLabel", bill)
+        label.Size = UDim2.new(1, 0, 0.4, 0); label.BackgroundTransparency = 1; 
+        label.TextColor3 = Color3.new(1, 1, 1); 
+        label.Font = Enum.Font.GothamBold; label.TextScaled = true
+
+        local hpBg = Instance.new("Frame", bill)
+        hpBg.Name = "HPBG"; hpBg.Size = UDim2.new(0.6, 0, 0.08, 0); hpBg.Position = UDim2.new(0.2, 0, 0.5, 0); hpBg.BackgroundColor3 = Color3.new(0, 0, 0); hpBg.BorderSizePixel = 0
+        local hpFill = Instance.new("Frame", hpBg)
+        hpFill.Size = UDim2.new(1, 0, 1, 0); hpFill.BackgroundColor3 = Color3.new(0, 1, 0); hpFill.BorderSizePixel = 0
+
+        local high = Instance.new("Highlight", char)
+        high.Name = "Makarov_High"; high.OutlineTransparency = 0; high.FillTransparency = 0.5
+
+        local tracer = Drawing.new("Line"); tracer.Thickness = 1.5
+
+        local lines = {}
+        local function makeLine()
+            local l = Drawing.new("Line"); l.Thickness = 1.5
+            table.insert(lines, l); return l
+        end
+
+        local connections = {
+            {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+            {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"},
+            {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"},
+            {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"},
+            {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}
+        }
+        for _=1, #connections do makeLine() end
+
+        local connection
+        connection = RunService.RenderStepped:Connect(function()
+            if not char or not char.Parent or not hum or hum.Health <= 0 then
+                bill:Destroy(); high:Destroy(); tracer:Remove()
+                for _,l in pairs(lines) do l:Remove() end
+                connection:Disconnect()
+                return
+            end
+
+            local isEnemy = (player.Team ~= localPlayer.Team)
+            local canShow = Settings.EspEnabled and (not Settings.TeamCheck or isEnemy)
+            local renderColor = isEnemy and Settings.EnemyColor or Settings.FriendColor
+            
+            if isEnemy then
+                local rayParam = RaycastParams.new()
+                rayParam.FilterType = Enum.RaycastFilterType.Exclude
+                rayParam.FilterDescendantsInstances = {localPlayer.Character, camera, char}
+                local rayResult = Workspace:Raycast(camera.CFrame.Position, (head.Position - camera.CFrame.Position), rayParam)
+
+                if rayResult then
+                    renderColor = Color3.fromRGB(150, 150, 150)
+                else
+                    renderColor = Color3.fromRGB(255, 0, 0)
+                end
+            end
+
+            bill.Enabled = canShow
+            high.Enabled = (canShow and Settings.EspHighlight)
+            high.FillColor = renderColor
+            high.OutlineColor = renderColor
+            label.TextColor3 = Color3.new(1, 1, 1) -- Текст всегда белый
+
+            if canShow then
+                local dist = math.floor((root.Position - camera.CFrame.Position).Magnitude)
+                local info = ""
+                if Settings.EspNames then info = player.DisplayName end
+                if Settings.EspDistance then info = info .. " [" .. dist .. "m]" end
+                label.Text = info
+                
+                local ratio = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
+                hpFill.Size = UDim2.new(ratio, 0, 1, 0)
+                hpFill.BackgroundColor3 = Color3.fromHSV(ratio * 0.33, 1, 1)
+                hpBg.Visible = Settings.EspHealth
+
+                local pos, onScreen = camera:WorldToViewportPoint(root.Position)
+                
+                if Settings.EspTracers and onScreen then
+                    tracer.Visible = true; tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+                    tracer.To = Vector2.new(pos.X, pos.Y); tracer.Color = renderColor
+                else tracer.Visible = false end
+
+                if Settings.EspSkeletons and onScreen then
+                    for i, pair in ipairs(connections) do
+                        local p1, p2 = char:FindFirstChild(pair[1]), char:FindFirstChild(pair[2])
+                        if p1 and p2 then
+                            local v1, os1 = camera:WorldToViewportPoint(p1.Position)
+                            local v2, os2 = camera:WorldToViewportPoint(p2.Position)
+                            if os1 and os2 then
+                                lines[i].Visible = true; lines[i].From = Vector2.new(v1.X, v1.Y); lines[i].To = Vector2.new(v2.X, v2.Y); lines[i].Color = renderColor
+                            else lines[i].Visible = false end
+                        else lines[i].Visible = false end
+                    end
+                else
+                    for _,l in pairs(lines) do l.Visible = false end
+                end
+            else 
+                tracer.Visible = false; for _,l in pairs(lines) do l.Visible = false end
+            end
+        end)
+    end
+    player.CharacterAdded:Connect(setupChar)
+    if player.Character then setupChar(player.Character) end
+end
+
+local gui = Instance.new("ScreenGui", CoreGui)
+local main = Instance.new("Frame", gui)
+main.Size = UDim2.new(0, 360, 0, 680)
+main.Position = UDim2.new(0.5, -180, 0.5, -340)
+main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+main.Visible = true
+Instance.new("UICorner", main)
+
+local mainStroke = Instance.new("UIStroke", main)
+mainStroke.Thickness = 2; mainStroke.Color = Settings.AccentColor
+
+local topBar = Instance.new("Frame", main)
+topBar.Size = UDim2.new(1, 0, 0, 50); topBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25); Instance.new("UICorner", topBar)
+
+local title = Instance.new("TextLabel", topBar)
+title.Size = UDim2.new(1, 0, 1, 0); title.Text = "MAKAROV ULTIMATE V3"; title.TextColor3 = Settings.AccentColor; title.Font = Enum.Font.GothamBold; title.TextSize = 20; title.BackgroundTransparency = 1
+
+local scroll = Instance.new("ScrollingFrame", main)
+scroll.Size = UDim2.new(1, -10, 1, -75); scroll.Position = UDim2.new(0, 5, 0, 60); scroll.BackgroundTransparency = 1; scroll.ScrollBarThickness = 2; scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+local layout = Instance.new("UIListLayout", scroll); layout.Padding = UDim.new(0, 15)
+
+local function applyTheme()
+    local c = Settings.AccentColor
+    mainStroke.Color = c; title.TextColor3 = c; fov_circle.Color = c
+    for _, obj in pairs(main:GetDescendants()) do
+        if obj.Name == "SectionHeader" then obj.TextColor3 = c end
+        if obj.Name == "ToggleBtn" and obj.Text:find("ON") then obj.BackgroundColor3 = c end
+        if obj.Name == "FillBar" then obj.BackgroundColor3 = c end
+    end
+end
+
+local function buildSection(name)
+    local container = Instance.new("Frame", scroll); container.Size = UDim2.new(1, -5, 0, 0); container.AutomaticSize = Enum.AutomaticSize.Y; container.BackgroundTransparency = 1
+    Instance.new("UIListLayout", container).Padding = UDim.new(0, 5)
+    local header = Instance.new("TextButton", container); header.Name = "SectionHeader"; header.Size = UDim2.new(1, 0, 0, 45); header.BackgroundColor3 = Color3.fromRGB(30, 30, 30); header.Text = "  ▼  " .. name; header.TextColor3 = Settings.AccentColor; header.Font = Enum.Font.GothamBold; header.TextSize = 16; header.TextXAlignment = Enum.TextXAlignment.Left; Instance.new("UICorner", header)
+    local content = Instance.new("Frame", container); content.Name = "SettingsContent"; content.Size = UDim2.new(1, 0, 0, 0); content.AutomaticSize = Enum.AutomaticSize.Y; content.BackgroundTransparency = 1; Instance.new("UIListLayout", content).Padding = UDim.new(0, 8)
+    header.MouseButton1Click:Connect(function() content.Visible = not content.Visible; header.Text = (content.Visible and "  ▼  " or "  ▶  ") .. name end)
+    return content
+end
+
+local function addToggle(parent, text, key)
+    local btn = Instance.new("TextButton", parent); btn.Name = "ToggleBtn"; btn.Size = UDim2.new(1, 0, 0, 42); btn.Font = Enum.Font.GothamBold; btn.TextSize = 14; Instance.new("UICorner", btn)
+    local function update()
+        btn.Text = text .. ": " .. (Settings[key] and "ON" or "OFF")
+        btn.BackgroundColor3 = Settings[key] and Settings.AccentColor or Color3.fromRGB(40, 40, 40)
+        btn.TextColor3 = Settings[key] and Color3.new(0,0,0) or Color3.new(1,1,1)
+        if key == "ThirdPersonEnabled" then localPlayer.CameraMinZoomDistance = Settings[key] and 10 or 0.5; localPlayer.CameraMaxZoomDistance = Settings[key] and 50 or 12.5 end
+        if key == "NoSpreadEnabled" or key == "InfAmmoEnabled" or key == "RapidFireEnabled" or key == "MultiBulletsEnabled" then applyWeaponSettings() end
+    end
+    btn.MouseButton1Click:Connect(function() Settings[key] = not Settings[key]; update() end); update()
+end
+
+local function addInput(parent, text, key)
+    local frame = Instance.new("Frame", parent); frame.Size = UDim2.new(1, 0, 0, 60); frame.BackgroundTransparency = 1
+    local label = Instance.new("TextLabel", frame); label.Size = UDim2.new(1, 0, 0, 25); label.Text = text; label.TextColor3 = Color3.new(1, 1, 1); label.Font = Enum.Font.GothamBold; label.BackgroundTransparency = 1
+    local box = Instance.new("TextBox", frame); box.Size = UDim2.new(1, -10, 0, 30); box.Position = UDim2.new(0, 5, 0, 30); box.BackgroundColor3 = Color3.fromRGB(35, 35, 35); box.Text = Settings[key]; box.TextColor3 = Settings.AccentColor; box.Font = Enum.Font.GothamBold; box.PlaceholderText = "Введите число..."; Instance.new("UICorner", box)
+    box.FocusLost:Connect(function(enterPressed) Settings[key] = box.Text; applyWeaponSettings(); if enterPressed then GuiService.SelectedCoreObject = nil end end)
+end
+
+local function addSlider(parent, text, min, max, key)
+    local frame = Instance.new("Frame", parent); frame.Size = UDim2.new(1, 0, 0, 60); frame.BackgroundTransparency = 1
+    local label = Instance.new("TextLabel", frame); label.Size = UDim2.new(1, 0, 0, 25); label.Text = text .. ": " .. Settings[key]; label.TextColor3 = Color3.new(1,1,1); label.Font = Enum.Font.GothamBold; label.BackgroundTransparency = 1
+    local bg = Instance.new("Frame", frame); bg.Size = UDim2.new(1, -10, 0, 6); bg.Position = UDim2.new(0, 5, 0, 40); bg.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+    local fill = Instance.new("Frame", bg); fill.Name = "FillBar"; fill.Size = UDim2.new((Settings[key]-min)/(max-min), 0, 1, 0); fill.BackgroundColor3 = Settings.AccentColor
+    local trigger = Instance.new("TextButton", bg); trigger.Size = UDim2.new(1, 0, 5, 0); trigger.BackgroundTransparency = 1; trigger.Text = ""
+    trigger.MouseButton1Down:Connect(function()
+        local move; move = RunService.RenderStepped:Connect(function()
+            local rel = math.clamp((UserInputService:GetMouseLocation().X - bg.AbsolutePosition.X) / bg.AbsoluteSize.X, 0, 1)
+            fill.Size = UDim2.new(rel, 0, 1, 0); local val = math.floor(min + (max - min) * rel); Settings[key] = val; label.Text = text .. ": " .. val; if key == "AimFov" then fov_circle.Radius = val end
+        end)
+        UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then move:Disconnect() end end)
+    end)
+end
+
+local function addDropdown(parent, text, list)
+    local frame = Instance.new("Frame", parent)
+    frame.Size = UDim2.new(1, 0, 0, 42)
+    frame.BackgroundTransparency = 1
+    frame.ClipsDescendants = true
+    
+    local mainBtn = Instance.new("TextButton", frame)
+    mainBtn.Size = UDim2.new(1, 0, 0, 42)
+    mainBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    mainBtn.Text = "  " .. text .. "  ▶"
+    mainBtn.TextColor3 = Color3.new(1, 1, 1)
+    mainBtn.Font = Enum.Font.GothamBold
+    mainBtn.TextSize = 14
+    mainBtn.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", mainBtn)
+
+    local listFrame = Instance.new("Frame", frame)
+    listFrame.Position = UDim2.new(0, 0, 0, 45)
+    listFrame.Size = UDim2.new(1, 0, 0, 0)
+    listFrame.BackgroundTransparency = 1
+    listFrame.Visible = false
+    local listLayout = Instance.new("UIListLayout", listFrame)
+    listLayout.Padding = UDim.new(0, 5) -- Небольшой отступ между кнопками скайбоксов
+
+    local isOpen = false
+    mainBtn.MouseButton1Click:Connect(function()
+        isOpen = not isOpen
+        listFrame.Visible = isOpen
+        mainBtn.Text = "  " .. text .. (isOpen and "  ▼" or "  ▶")
+        frame.AutomaticSize = isOpen and Enum.AutomaticSize.Y or Enum.AutomaticSize.None
+        if not isOpen then frame.Size = UDim2.new(1, 0, 0, 42) end
+    end)
+
+    local keys = {}
+    for k in pairs(list) do table.insert(keys, k) end
+    table.sort(keys, function(a, b)
+        if a == "Default" then return true end
+        if b == "Default" then return false end
+        return a < b
+    end)
+
+    for _, name in ipairs(keys) do
+        local ids = list[name]
+        local b = Instance.new("TextButton", listFrame)
+        b.Size = UDim2.new(1, 0, 0, 42) -- Размер в точности как у обычных кнопок
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 30) -- Чуть темнее фон для вложенности
+        b.Text = name
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 14
+        Instance.new("UICorner", b)
+
+        b.MouseButton1Click:Connect(function()
+            -- Эффект нажатия: кнопка мигает цветом акцента (как твои тогглы)
+            local oldCol = b.BackgroundColor3
+            local oldTextCol = b.TextColor3
+            
+            b.BackgroundColor3 = Settings.AccentColor
+            b.TextColor3 = Color3.new(0, 0, 0)
+
+            -- Смена скайбокса
+            for _, child in pairs(Lighting:GetChildren()) do
+                if child:IsA("Sky") then child:Destroy() end
+            end
+
+            if ids ~= "reset" then
+                local sky = Instance.new("Sky", Lighting)
+                sky.SkyboxBk = "rbxassetid://" .. ids.Bk
+                sky.SkyboxDn = "rbxassetid://" .. ids.Dn
+                sky.SkyboxFt = "rbxassetid://" .. ids.Ft
+                sky.SkyboxLf = "rbxassetid://" .. ids.Lf
+                sky.SkyboxRt = "rbxassetid://" .. ids.Rt
+                sky.SkyboxUp = "rbxassetid://" .. ids.Up
+                sky.SunAngularSize = 0
+                sky.StarCount = 0
+            end
+            
+            task.wait(0.1)
+            b.BackgroundColor3 = oldCol
+            b.TextColor3 = oldTextCol
+        end)
+    end
+end
+
+local aimS = buildSection("AIMBOT")
+addToggle(aimS, "Enable Aimbot", "AimbotEnabled"); addToggle(aimS, "Triggerbot (Auto)", "TriggerbotEnabled"); addToggle(aimS, "Team Check", "TeamCheck"); addSlider(aimS, "FOV Radius", 10, 800, "AimFov"); addSlider(aimS, "Smoothness", 1, 100, "AimSmooth")
+
+local rageS = buildSection("RAGEBOT")
+addToggle(rageS, "Enable Ragebot", "RagebotEnabled"); addToggle(rageS, "Target TP & Spin", "RageTargetTP"); addToggle(rageS, "Auto Fire", "RageAutoFire"); addToggle(rageS, "Wall Check", "RageWallCheck")
+
+local espS = buildSection("VISUALS")
+addToggle(espS, "Master ESP", "EspEnabled"); addToggle(espS, "Names", "EspNames"); addToggle(espS, "Distance", "EspDistance"); addToggle(espS, "Health Bars", "EspHealth"); addToggle(espS, "Highlights", "EspHighlight"); addToggle(espS, "Skeletons", "EspSkeletons"); addToggle(espS, "Tracers", "EspTracers")
+
+local wpnS = buildSection("WEAPON")
+addToggle(wpnS, "No Spread", "NoSpreadEnabled"); addToggle(wpnS, "Infinite Ammo", "InfAmmoEnabled"); addToggle(wpnS, "Rapid Fire", "RapidFireEnabled"); addInput(wpnS, "Bullets Amount:", "BulletInput"); addToggle(wpnS, "Custom Bullets", "MultiBulletsEnabled")
+
+local plyS = buildSection("PLAYER")
+addToggle(plyS, "Speed Hack", "SpeedEnabled"); addSlider(plyS, "Walk Speed", 16, 250, "WalkSpeedValue"); addToggle(plyS, "Third Person", "ThirdPersonEnabled"); addToggle(plyS, "CS-Style Bunny Hop", "BhopEnabled"); addToggle(plyS, "Infinite Jump", "InfJumpEnabled"); addToggle(plyS, "SpinBot", "SpinBotEnabled"); addSlider(plyS, "Spin Speed", 10, 200, "SpinSpeedValue"); addToggle(plyS, "NoClip", "NoClipEnabled")
+
+local miscS = buildSection("MISC / ПРОЧЕЕ")
+addToggle(miscS, "Show FPS & Ping", "ShowStats"); addToggle(miscS, "FullBright", "FullBright")
+addDropdown(miscS, "Skybox Selection", skyboxes)
+addToggle(miscS, "Enable FOV Changer", "FovChangerEnabled")
+addSlider(miscS, "Field of View", 70, 120, "FovChangerValue")
+
+-- Кнопки серверов
+addButton(miscS, "Rejoin Server", rejoinServer)
+addButton(miscS, "Server Hop (New Server)", serverHop)
+
+
+RunService.RenderStepped:Connect(function()
+if Settings.FovChangerEnabled then
+    camera.FieldOfView = Settings.FovChangerValue
+else
+    -- Если выключено, можно вернуть стандартный или не трогать (зависит от игры)
+    -- camera.FieldOfView = 70 
+end
+    local isMenuOpen = main.Visible
+    local isTyping = UserInputService:GetFocusedTextBox() ~= nil
+    local isRobloxMenu = GuiService.SelectedCoreObject ~= nil
+
+    if isMenuOpen or isTyping or isRobloxMenu then fov_circle.Visible = false else fov_circle.Visible = Settings.AimbotEnabled and not Settings.RagebotEnabled; fov_circle.Position = UserInputService:GetMouseLocation() end
+    if Settings.RainbowActive then Settings.AccentColor = Color3.fromHSV(tick() % 5 / 5, 1, 1); applyTheme() end
+    if Settings.FullBright then Lighting.Ambient = Color3.new(1, 1, 1); Lighting.ColorShift_Top = Color3.new(1, 1, 1) else Lighting.Ambient = origAmbient; Lighting.ColorShift_Top = origColorShift end
+
+    if Settings.ShowStats then
+        statsLabel.Visible = true; local fps = math.floor(1/RunService.RenderStepped:Wait()); local ping = math.floor(localPlayer:GetNetworkPing() * 1000); statsLabel.Text = "FPS: " .. fps .. "\nPING: " .. ping .. "ms"
+    else statsLabel.Visible = false end
+
+    local myChar = localPlayer.Character
+    local myHum = myChar and myChar:FindFirstChild("Humanoid")
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+    if not isMenuOpen and not isTyping and not isRobloxMenu then
+        if Settings.RagebotEnabled or (Settings.AimbotEnabled and isAiming) then
+            local targetPlayer = getClosestTarget()
+            if targetPlayer and targetPlayer.Character then
+                local part = targetPlayer.Character:FindFirstChild(Settings.AimPart)
+                local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+                if part and targetRoot then
+                    local isVisible = true
+                    if Settings.RagebotEnabled and Settings.RageWallCheck and not Settings.RageTargetTP then
+                        local rayParam = RaycastParams.new(); rayParam.FilterType = Enum.RaycastFilterType.Exclude; rayParam.FilterDescendantsInstances = {myChar, camera}
+                        local rayResult = Workspace:Raycast(camera.CFrame.Position, (part.Position - camera.CFrame.Position), rayParam)
+                        isVisible = (not rayResult or rayResult.Instance:IsDescendantOf(targetPlayer.Character))
+                    end
+                    if isVisible or Settings.RageTargetTP then
+                        if Settings.RagebotEnabled then
+                            camera.CFrame = CFrame.lookAt(camera.CFrame.Position, part.Position)
+                            if Settings.RageTargetTP and myRoot then
+                                local speed = tick() * 10; local radius = 5; local offsetX = math.sin(speed) * radius; local offsetZ = math.cos(speed) * radius
+                                myRoot.CFrame = CFrame.new(targetRoot.Position + Vector3.new(offsetX, 2, offsetZ), targetRoot.Position); myRoot.Velocity = Vector3.new(0,0,0)
+                            end
+                            if Settings.RageAutoFire and tick() - lastRageShot > 0.05 then
+                                VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, true, game, 0); task.wait(0.01); VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, false, game, 0); lastRageShot = tick()
+                            end
+                        else
+                            camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camera.CFrame.Position, part.Position), Settings.AimSmooth / 100)
+                        end
+                    end
+                end
+            end
+        end
+
+        if Settings.TriggerbotEnabled and myChar and myHum and myHum.Health > 0 then
+            local targetPart = Mouse.Target
+            if targetPart and targetPart.Parent then
+                local character = targetPart:FindFirstAncestorOfClass("Model"); local tPlayer = character and Players:GetPlayerFromCharacter(character)
+                if tPlayer and tPlayer ~= localPlayer then
+                    if (not Settings.TeamCheck or tPlayer.Team ~= localPlayer.Team) and character:FindFirstChild("Humanoid") and character.Humanoid.Health > 0 then
+                        if tick() - lastTriggerShot > 0.15 then
+                            VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, true, game, 0); task.wait(0.03); VirtualInputManager:SendMouseButtonEvent(camera.ViewportSize.X/2, camera.ViewportSize.Y/2, 0, false, game, 0); lastTriggerShot = tick()
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if myChar and myRoot and myHum then
+        if Settings.SpeedEnabled then myHum.WalkSpeed = Settings.WalkSpeedValue end
+        if Settings.NoClipEnabled then for _, v in pairs(myChar:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = false end end end
+        if Settings.SpinBotEnabled then myHum.AutoRotate = false; myRoot.CFrame = myRoot.CFrame * CFrame.Angles(0, math.rad(Settings.SpinSpeedValue), 0) else myHum.AutoRotate = true end
+        if Settings.BhopEnabled and UserInputService:IsKeyDown(Enum.KeyCode.Space) and myHum.FloorMaterial ~= Enum.Material.Air then myHum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(i, g) if i.KeyCode == Settings.MenuKey then main.Visible = not main.Visible; if not main.Visible then GuiService.SelectedCoreObject = nil end end; if not g and i.UserInputType == Settings.AimKey then isAiming = true end end)
+UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Settings.AimKey then isAiming = false end end)
+UserInputService.JumpRequest:Connect(function() if Settings.InfJumpEnabled and localPlayer.Character then localPlayer.Character.Humanoid:ChangeState(3) end end)
+
+local drag, dS, sP
+topBar.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = true; dS = i.Position; sP = main.Position end end)
+UserInputService.InputChanged:Connect(function(i) if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
+    local delta = i.Position - dS; main.Position = UDim2.new(sP.X.Scale, sP.X.Offset+delta.X, sP.Y.Scale, sP.Y.Offset+delta.Y)
+end end)
+topBar.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end end)
+
+local themeBtn = Instance.new("TextButton", main); themeBtn.Size = UDim2.new(0, 100, 0, 35); themeBtn.Position = UDim2.new(1, -110, 1, -45); themeBtn.Text = "THEME"; themeBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 35); themeBtn.TextColor3 = Color3.new(1,1,1); themeBtn.Font = Enum.Font.GothamBold; themeBtn.TextSize = 10; Instance.new("UICorner", themeBtn)
+themeBtn.MouseButton1Click:Connect(function()
+    themeIdx = (themeIdx % #themeColors) + 1; local sel = themeColors[themeIdx]
+    if sel == "Rainbow" then Settings.RainbowActive = true else Settings.RainbowActive = false; Settings.AccentColor = sel; applyTheme() end
+end)
+
+for _, p in pairs(Players:GetPlayers()) do applyESP(p) end
+Players.PlayerAdded:Connect(applyESP)
